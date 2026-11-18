@@ -14,9 +14,9 @@
 // Default stack size for the tasks. It can be reduced to 1024 if task is not using a lot of memory
 #define DEFAULT_STACK_SIZE 2048 
 // Buffer size for sending morse data to serial client
-#define OUTPUT_BUFFER_SIZE 128
+#define OUTPUT_BUFFER_SIZE 128 
 // Buffer size for receiving morse data from serial client
-#define INPUT_BUFFER_SIZE 256
+#define INPUT_BUFFER_SIZE 256 
 
 //Program states. IMU_task and receive_task run continuously on IDLE
 enum state { IDLE=1, BUTTON1_PRESSED, BUTTON2_PRESSED, MORSE_READY};
@@ -45,21 +45,21 @@ static void IMU_task(void *pvParameters) {
     // Read sensor data when IDLE and change value of ch depending on the tilting of the device's x-axis
     while (1) {
         if (programState == IDLE) {
-        if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
-            if ((ax >= 0.7) && (ax < 1.1)) {
-                ch = ' ';
+            if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
+                if ((ax >= 0.7) && (ax < 1.1)) {
+                    ch = ' ';
+                }
+                else if ((ax < 0.7) && (ax > -0.7)) {
+                    ch = '.';
+                }
+                else if ((ax <= -0.7) && (ax > -1.1)) {
+                    ch = '-';
+                }
             }
-            else if ((ax < 0.7) && (ax > -0.7)) {
-                ch = '.';
+            else {
+                printf("Failed to read imu data\n");
             }
-            else if ((ax <= -0.7) && (ax > -1.1)) {
-                ch = '-';
-            }
-
-        } else {
-            printf("Failed to read imu data\n");
         }
-    }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -81,59 +81,66 @@ static void print_task(void *arg){
     static int i = 0;
     
     while(1){
-        // button 1 updates string buffer
+        // button 1 updates char array. **ADD FEEDBACK WHEN PRESSING BUTTONS E.G. SOUNDS OR LED**
         if (programState == BUTTON1_PRESSED) {
-            if (i < (OUTPUT_BUFFER_SIZE - 1)) // To prevent overflow
-            {
+            if (i < (OUTPUT_BUFFER_SIZE - 1)) { // To prevent overflow
+                toggle_led();
+                if (ch == '.') {
+                    buzzer_play_tone(700, 100);
+                }
+                else if (ch == '-') {
+                    buzzer_play_tone(800, 300);
+                }
+                else if (ch == ' ') {
+                    buzzer_play_tone(1000, 50);
+                }
+                toggle_led();
                 text[i++] = ch;
             }
             programState = IDLE;
         }
-        // button 2 sends the morse string to serial client
+        // button 2 terminates morse string and sends the it to serial client
         else if (programState == BUTTON2_PRESSED) {
             text[i] = '\0';
-            for (int j = 0; text[j] != '\0'; j++) {
-                printf("%c", text[j]);
-            }
-            printf("  \n");
+            printf("%s  \n", text);
             i = 0;
             programState = IDLE;
         }
-        vTaskDelay(pdMS_TO_TICKS(300));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
 // Task for buzzing and displaying the received morse code. Runs when programState is MORSE_READY
 static void displaybuzzer_task(void *arg) {
     (void)arg;
-    int time = 100; // Duration of buzzer sound in (ms)
+    int dit = 100; // The basic morse unit in milliseconds
 
     while(1){
         if (programState == MORSE_READY) {
             // Function for decoding and displaying received morse from serial client. (From translatemorse.h)
             display_morse(line, sizeof(line));
 
-            // Loop for sounding the received string in morse
+            // Loop for sounding the received string in morse. **ADD LED BLINKING AND INDICATOR OF A NEW INCOMING MESSAGE**
             for(int i = 0; line[i] != '\0'; i++) {
                 if (line[i] == '.') {
-                    buzzer_play_tone(700, time);
-                    vTaskDelay(pdMS_TO_TICKS(time));
+                    buzzer_play_tone(700, dit);
+                    vTaskDelay(pdMS_TO_TICKS(dit)); // A dit
                 }
                 else if (line[i] == '-') {
-                    buzzer_play_tone(800, (time * 3)); // A dash is 3 times longer than a dot
-                    vTaskDelay(pdMS_TO_TICKS(time));
+                    buzzer_play_tone(800, (dit * 3)); // A dah is 3 times longer than a dit
+                    vTaskDelay(pdMS_TO_TICKS(dit));
                 }
                 else if ((line[i] == ' ') && (line[i + 1] == ' ')) {
-                    vTaskDelay(pdMS_TO_TICKS(time * 10)); // Two consecutive spaces includes a longer pause
+                    vTaskDelay(pdMS_TO_TICKS(dit * 6)); // Pauses between words are 7 units
                 }
                 else if (line[i] == ' ') {
-                    vTaskDelay(pdMS_TO_TICKS(time * 2));
+                    vTaskDelay(pdMS_TO_TICKS(dit * 2)); // Pauses between letters are 3 units
                 }
 
             }
-            programState = IDLE;
+            programState = IDLE; // Go back to IDLE when the process is complete
         }
-            vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -144,7 +151,7 @@ static void receive_task(void *arg){
 
     while (1) {
         if (programState == IDLE) {
-            int c = getchar_timeout_us(0); // Take one char per time and store it in line array, until reeceived the \n
+            int c = getchar_timeout_us(10000); // Take one char per time and store it in line array, until received the \n
             if (c != PICO_ERROR_TIMEOUT) { // I have received a character
                 if (c == '\r') continue; // Ignore CR, wait for LF
                 if (c == '\n') {
@@ -152,10 +159,10 @@ static void receive_task(void *arg){
                     line[index] = '\0'; 
                     index = 0;
                     programState = MORSE_READY; // Change programState to MORSE_READY for the displaybuzzer_task
-                    vTaskDelay(pdMS_TO_TICKS(100)); // Wait for new message
                 }
-                else if(index < INPUT_BUFFER_SIZE - 1) {
+                else if (index < INPUT_BUFFER_SIZE - 1) {
                     line[index++] = (char)c;
+                    continue;
                 }
                 else { // Overflow: process the previous string and restart the buffer with the new character
                     line[INPUT_BUFFER_SIZE - 1] = '\0';
@@ -185,6 +192,7 @@ int main() {
     init_button2();
     init_buzzer();
     init_display();
+    init_led();
 
     // Interrupt handlers for buttons 1 and 2 
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn_fxn);

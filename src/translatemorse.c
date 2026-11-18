@@ -3,7 +3,7 @@
 #include "tkjhat/sdk.h"
 #include "translatemorse.h"
 
-// Define a struct for a lookup table
+// Define a struct for a morse lookup table
 typedef struct {
     const char * morse;
     char letter;
@@ -34,11 +34,11 @@ void display_morse(char * line, int size) {
     char *tok; // Token extracted from strsep()
 
     // Loop that uses strsep() to tokenize the morse string with space as the delimiter
-    // Then we loop through the lookuptable and check which letter the current token matches
-    // Spaces between words (aka two spaces in a row) are interpreted as "" by strsep() 
+    // Then we loop through the lookup table and check which letter corresponds to the current token
+    // Spaces between words (two spaces in a row) are interpreted as "" by strsep() 
     while(((tok = strsep(&ptr, " ")) != NULL) && (pos < (sizeof(buf) - 1))) {
         for (size_t i = 0; i < MORSE_TABLE_SIZE; i++) {
-            if (strcmp(tok, morsetable[i].morse) == 0) {
+            if (strcmp(tok, morsetable[i].morse) == 0) { // strcmp() returns 0 if the arguments match
                 buf[pos++] = morsetable[i].letter;
                 break;
             }
